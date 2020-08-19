@@ -10,6 +10,7 @@
 if ( function_exists( 'add_filter' ) ) {
     add_action( 'plugins_loaded', array( 'Attachment_Taxonomies', 'get_object' ));
     add_action('admin_menu', 'imgapi_plugin_setup_menu');
+    add_action('rest_api_init', 'custom_rest_route');
 }
  
 function imgapi_plugin_setup_menu(){
@@ -199,4 +200,45 @@ class Attachment_Taxonomies {
     }
 
 } // end class
+
+function custom_rest_route() {
+    register_rest_route('sy/v1', 'photo_app', [
+        'methods' => 'GET',
+        'callback' => 'sy_photo_app'
+    ]);
+}
+
+function sy_photo_app() {
+    $taxonomy = 'attachment_category';
+    $term = 'Photo App';
+    $query_images_args = [
+        'post_type'      => 'attachment',
+        'post_mime_type' => 'image',
+        'post_status'    => 'inherit',
+        'posts_per_page' => - 1,
+        'tax_query' => [
+            [
+                'taxonomy'  => $taxonomy,
+                'field'     => 'slug',
+                'terms'     => $term
+            ]
+        ]
+    ];
+
+    $query_images = new WP_Query( $query_images_args );
+    $images = array();
+    $data = [];
+    $data['photo_count'] = count($query_images->posts);
+    $data['photo_objects'] = [];
+    $i = 0;
+    foreach ( $query_images->posts as $image ) {
+        $data['photo_objects'][$i]['id'] = $image->ID;
+        $data['photo_objects'][$i]['post_date'] = $image->post_date;
+        $data['photo_objects'][$i]['post_last_modified_date'] = $image->post_modified;
+        $data['photo_objects'][$i]['image_url'] = $image->guid;
+        $i++;
+    }
+
+    return $data;
+}
 ?>
