@@ -7,7 +7,10 @@
     Author URI:  http://www.seanyao.com
 */
 
-add_action('admin_menu', 'imgapi_plugin_setup_menu');
+if ( function_exists( 'add_filter' ) ) {
+    add_action( 'plugins_loaded', array( 'Attachment_Taxonomies', 'get_object' ));
+    add_action('admin_menu', 'imgapi_plugin_setup_menu');
+}
  
 function imgapi_plugin_setup_menu(){
     add_menu_page( 'Upload Image Page', 'Upload Image Plugin', 'manage_options', 'imageapi-plugin', 'iapi_init' );
@@ -16,12 +19,7 @@ function imgapi_plugin_setup_menu(){
 function iapi_init(){
     iapi_handle_post();
 ?>
-    <h2>Upload image file(s)</h2>
-    <!-- Form to handle the upload - The enctype value here is very important
-    <form  method="post" enctype="multipart/form-data">
-        <input type='file' id='test_upload_pdf' name='test_upload_pdf'></input>
-        <?php /*submit_button('Upload')*/ ?>
-    </form> -->
+    <h2>Upload image file(s). Image file type allow: jpg, jpeg, png.</h2>
     <form id="file_upload" method="post" action="#" enctype="multipart/form-data">
         <input type="file" name="my_file_upload[]" multiple="multiple">
         <input name="my_file_upload" type="submit" value="Upload" />
@@ -30,56 +28,15 @@ function iapi_init(){
 }
  
 function iapi_handle_post(){
-    // First check if the file appears on the _FILES array
-    /*if(isset($_FILES['test_upload_pdf'])){
-        $pdf = $_FILES['test_upload_pdf'];
- 
-        // Use the wordpress function to upload
-        // test_upload_pdf corresponds to the position in the $_FILES array
-        // 0 means the content is not associated with any other posts
-        $uploaded=media_handle_upload('test_upload_pdf', 0);
-        // Error checking using WP functions
-        if(is_wp_error($uploaded)){
-            echo "Error uploading file: " . $uploaded->get_error_message();
-        }else{
-            echo "File upload successful!";
-            test_convert($uploaded);
-        }
- 
- 
-    }*/
-
-    /*
-    $filename = sanitize_text_field($_FILES["image"]["name"]);
-    $deprecated = null;
-    $bits = file_get_contents($_FILES["image"]["tmp_name"]);
-    $time = current_time('mysql');
-
-    $upload = wp_upload_bits($filename, $deprecated, $bits, $time);
-
-    global $current_user;
-    get_currentuserinfo();
-    $upload_dir = wp_upload_dir(); 
-    $user_dirname = $upload_dir['basedir'] . '/' . $current_user->user_login;
-    if(!file_exists($user_dirname)) wp_mkdir_p($user_dirname);
-
-    $upload = wp_upload_dir();
-    $upload_dir = $upload['basedir'] . $directory_path;
-    $permissions = 0755;
-    $oldmask = umask(0);
-    if (!is_dir($upload_dir)) mkdir($upload_dir, $permissions);
-    $umask = umask($oldmask);
-    $chmod = chmod($upload_dir, $permissions);
-    */
-
     if ($_SERVER['REQUEST_METHOD'] == 'POST') {
         require_once( ABSPATH . 'wp-admin/includes/image.php' );
         require_once( ABSPATH . 'wp-admin/includes/file.php' );
         require_once( ABSPATH . 'wp-admin/includes/media.php' );
     
         $files = $_FILES["my_file_upload"];
+        $allowed_file_types = array('image/jpg', 'image/jpeg', 'image/png');
         foreach ($files['name'] as $key => $value) {
-            if ($files['name'][$key]) {
+            if ($files['name'][$key] && in_array($files['type'][$key], $allowed_file_types)) {
                 $file = array(
                     'name' => $files['name'][$key],
                     'type' => $files['type'][$key],
@@ -95,59 +52,151 @@ function iapi_handle_post(){
                     echo "Error adding file";
                 } else {
                     // The image was uploaded successfully!
+                    wp_set_object_terms($attachment_id, 'Photo App', 'attachment_category', true);
                     echo "File added successfully with ID: " . $attachment_id . "<br>";
                     echo wp_get_attachment_image($attachment_id, array(800, 600)) . "<br>"; //Display the uploaded image with a size you wish. In this case it is 800x600
                 }
             }
+            else {
+                echo "Error adding file";
+            }
         }
     }
 }
- /*
-function test_convert($id){
-    // Get the file details
-    $file = get_post($id);
-    // Account details
-    $email="";
-    $password="";
- 
-    // Declare a new SoapClient - This is a class from PHP
-    $client = new SoapClient('http://cloud.idrsolutions.com:8080/HTML_Page_Extraction/IDRConversionService?wsdl');
- 
-    // Get the data of the file as bytes
-    $contents=file_get_contents(wp_get_attachment_url($id));
- 
-    // plugin_dir_path(__FILE__) gets the location of the plugin directory
-    // Using preg replace to replace the directory sepeerators with the correct type
-    // This is where the output will be written to
-    $outputdir = preg_replace("[\\/]", DIRECTORY_SEPARATOR, plugin_dir_path(__FILE__)) . "output".DIRECTORY_SEPARATOR. $file->post_title. DIRECTORY_SEPARATOR;
-    echo $outputdir;
-    if (!file_exists($outputdir)) {
-        mkdir($outputdir, 0777, true);
+
+class Attachment_Taxonomies {
+
+    static private $classobj;
+
+    /**
+     * Constructor, init the functions inside WP
+     *
+     * @since   1.0.0
+     * @return  void
+     */
+    public function __construct() {
+
+        // load translation files
+        add_action( 'admin_init', array( $this, 'localize_plugin' ) );
+        // add taxonmies
+        add_action( 'init', array( $this, 'setup_taxonomies' ) );
     }
- 
-    // Declare stlye parameters here - left blank here
-    $style_params = array();
-    // Set up array for the conversion
-    $conversion_params = array("email" => $email,
-                            "password" =>$password,
-                            "fileName"=>$file->post_title,
-                            "dataByteArray"=>$contents,
-                            "conversionType"=>"html5",
-                            "conversionParams"=>$style_params,
-                            "xmlParamsByteArray"=>null,
-                            "isDebugMode"=>false);
- 
-    try{
-        $output = (array)($client->convert($conversion_params));
-        // This method is very improtant as it allows us access to the file system
-        WP_Filesystem();
-        // Write output as zip
-        file_put_contents($outputdir.$file->post_title.".zip", $output);
-        // Unzip the file
-        $result=unzip_file($outputdir.$file->post_title.".zip", $outputdir);
-    } catch (Exception $e){
-        echo $e->getMessage() . "<br/>";
-        return;
+
+    /**
+     * Handler for the action 'init'. Instantiates this class.
+     *
+     * @since   1.0.0
+     * @access  public
+     * @return  $classobj
+     */
+    public static function get_object() {
+
+        if ( NULL === self::$classobj ) {
+            self::$classobj = new self;
+        }
+
+        return self::$classobj;
     }
-}*/
+
+    /**
+     * Localize plugin function.
+     *
+     * @uses    load_plugin_textdomain, plugin_basename
+     * @since   2.0.0
+     * @return  void
+     */
+    public function localize_plugin() {
+
+        load_plugin_textdomain(
+            'attachment_taxonomies',
+            FALSE,
+            dirname( plugin_basename( __FILE__ ) ) . '/languages/'
+        );
+    }
+
+    /**
+     * Setup Taxonomies
+     * Creates 'attachment_tag' and 'attachment_category' taxonomies.
+     * Enhance via filter `attachment_taxonomies`
+     * 
+     * @uses    register_taxonomy, apply_filters
+     * @since   1.0.0
+     * @return  void
+     */
+    public function setup_taxonomies() {
+
+        $attachment_taxonomies = array();
+
+        // Tags
+        $labels = array(
+            'name'              => _x( 'Media Tags', 'taxonomy general name', 'attachment_taxonomies' ),
+            'singular_name'     => _x( 'Media Tag', 'taxonomy singular name', 'attachment_taxonomies' ),
+            'search_items'      => __( 'Search Media Tags', 'attachment_taxonomies' ),
+            'all_items'         => __( 'All Media Tags', 'attachment_taxonomies' ),
+            'parent_item'       => __( 'Parent Media Tag', 'attachment_taxonomies' ),
+            'parent_item_colon' => __( 'Parent Media Tag:', 'attachment_taxonomies' ),
+            'edit_item'         => __( 'Edit Media Tag', 'attachment_taxonomies' ), 
+            'update_item'       => __( 'Update Media Tag', 'attachment_taxonomies' ),
+            'add_new_item'      => __( 'Add New Media Tag', 'attachment_taxonomies' ),
+            'new_item_name'     => __( 'New Media Tag Name', 'attachment_taxonomies' ),
+            'menu_name'         => __( 'Media Tags', 'attachment_taxonomies' ),
+        );
+
+        $args = array(
+            'hierarchical' => FALSE,
+            'labels'       => $labels,
+            'show_ui'      => TRUE,
+            'show_admin_column' => TRUE,
+            'query_var'    => TRUE,
+            'rewrite'      => TRUE,
+        );
+
+        $attachment_taxonomies[] = array(
+            'taxonomy'  => 'attachment_tag',
+            'post_type' => 'attachment',
+            'args'      => $args
+        );
+
+        // Categories
+        $labels = array(
+            'name'              => _x( 'Media Categories', 'taxonomy general name', 'attachment_taxonomies' ),
+            'singular_name'     => _x( 'Media Category', 'taxonomy singular name', 'attachment_taxonomies' ),
+            'search_items'      => __( 'Search Media Categories', 'attachment_taxonomies' ),
+            'all_items'         => __( 'All Media Categories', 'attachment_taxonomies' ),
+            'parent_item'       => __( 'Parent Media Category', 'attachment_taxonomies' ),
+            'parent_item_colon' => __( 'Parent Media Category:', 'attachment_taxonomies' ),
+            'edit_item'         => __( 'Edit Media Category', 'attachment_taxonomies' ), 
+            'update_item'       => __( 'Update Media Category', 'attachment_taxonomies' ),
+            'add_new_item'      => __( 'Add New Media Category', 'attachment_taxonomies' ),
+            'new_item_name'     => __( 'New Media Category Name', 'attachment_taxonomies' ),
+            'menu_name'         => __( 'Media Categories', 'attachment_taxonomies' ),
+        );
+
+        $args = array(
+            'hierarchical' => TRUE,
+            'labels'       => $labels,
+            'show_ui'      => TRUE,
+            'query_var'    => TRUE,
+            'rewrite'      => TRUE,
+        );
+
+        $attachment_taxonomies[] = array(
+            'taxonomy'  => 'attachment_category',
+            'post_type' => 'attachment',
+            'args'      => $args
+        );
+
+        $attachment_taxonomies = apply_filters( 'attachment_taxonomies', $attachment_taxonomies );
+
+        foreach ( $attachment_taxonomies as $attachment_taxonomy ) {
+            register_taxonomy(
+                $attachment_taxonomy['taxonomy'],
+                $attachment_taxonomy['post_type'],
+                $attachment_taxonomy['args']
+            );
+        }
+
+    }
+
+} // end class
 ?>
